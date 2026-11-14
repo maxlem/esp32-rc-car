@@ -48,9 +48,14 @@ int32_t mapSteeringUs(int32_t axisX) {
   return map(filtered, -511, 512, PWM_MIN_US, PWM_MAX_US);
 }
 
-int32_t mapThrottleUs(int32_t throttle, int32_t brake) {
-  int32_t net = applyDeadzone(throttle - brake, TRIGGER_DEADZONE);
-  return map(net, -1023, 1023, PWM_MIN_US, PWM_MAX_US);
+int32_t mapThrottleUs(int32_t throttle, int32_t brake, int32_t axisRY) {
+  int32_t netTrigger = applyDeadzone(throttle - brake, TRIGGER_DEADZONE);
+  if (netTrigger != 0) {
+    return map(netTrigger, -1023, 1023, PWM_MIN_US, PWM_MAX_US);
+  }
+  // Fallback for controllers without analog triggers: Right Stick Y (up = forward)
+  int32_t filteredRY = applyDeadzone(-axisRY, STICK_DEADZONE);
+  return map(filteredRY, -512, 511, PWM_MIN_US, PWM_MAX_US);
 }
 
 void onConnectedController(ControllerPtr ctl) {
@@ -81,7 +86,7 @@ void processControllers() {
   for (auto ctl : myControllers) {
     if (ctl && ctl->isConnected() && ctl->hasData()) {
       int32_t steeringUs = mapSteeringUs(ctl->axisX());
-      int32_t throttleUs = mapThrottleUs(ctl->throttle(), ctl->brake());
+      int32_t throttleUs = mapThrottleUs(ctl->throttle(), ctl->brake(), ctl->axisRY());
 
       writePwmUs(LEDC_CH_STEERING, steeringUs);
       writePwmUs(LEDC_CH_THROTTLE, throttleUs);
@@ -89,7 +94,14 @@ void processControllers() {
       uint32_t now = millis();
       if (now - lastLogMs >= 250) {
         lastLogMs = now;
-        Serial.printf("steering=%ld us | throttle=%ld us\n",
+        Serial.printf("ax=(%ld,%ld) r=(%ld,%ld) trig=(%ld,%ld) btn=0x%04X -> steer=%ld us | throt=%ld us\n",
+                      static_cast<long>(ctl->axisX()),
+                      static_cast<long>(ctl->axisY()),
+                      static_cast<long>(ctl->axisRX()),
+                      static_cast<long>(ctl->axisRY()),
+                      static_cast<long>(ctl->throttle()),
+                      static_cast<long>(ctl->brake()),
+                      ctl->buttons(),
                       static_cast<long>(steeringUs),
                       static_cast<long>(throttleUs));
       }
