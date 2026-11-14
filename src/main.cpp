@@ -4,6 +4,7 @@
 // GPIO pins for PWM outputs (adjust to match your wiring)
 constexpr uint8_t PIN_THROTTLE_PWM = 18;  // HSP SP-03018 ESC signal
 constexpr uint8_t PIN_STEERING_PWM = 19;  // Steering servo signal
+constexpr uint8_t PIN_BOOT_BUTTON = 0;    // Hold BOOT at startup to clear BT keys
 
 // LEDC PWM configuration: standard 50 Hz RC servo/ESC frame (20,000 us)
 constexpr uint8_t LEDC_CH_THROTTLE = 0;
@@ -75,6 +76,8 @@ void onDisconnectedController(ControllerPtr ctl) {
 }
 
 void processControllers() {
+  static uint32_t lastLogMs = 0;
+
   for (auto ctl : myControllers) {
     if (ctl && ctl->isConnected() && ctl->hasData()) {
       int32_t steeringUs = mapSteeringUs(ctl->axisX());
@@ -82,6 +85,14 @@ void processControllers() {
 
       writePwmUs(LEDC_CH_STEERING, steeringUs);
       writePwmUs(LEDC_CH_THROTTLE, throttleUs);
+
+      uint32_t now = millis();
+      if (now - lastLogMs >= 250) {
+        lastLogMs = now;
+        Serial.printf("steering=%ld us | throttle=%ld us\n",
+                      static_cast<long>(steeringUs),
+                      static_cast<long>(throttleUs));
+      }
       return;
     }
   }
@@ -90,6 +101,8 @@ void processControllers() {
 void setup() {
   Serial.begin(115200);
   Serial.println("esp32-rc-car (Bluepad32 + HSP SP-03018) starting...");
+
+  pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
 
   // Configure native LEDC PWM channels (avoids timer conflicts with Bluetooth)
   ledcSetup(LEDC_CH_THROTTLE, PWM_FREQ_HZ, PWM_RES_BITS);
@@ -102,6 +115,10 @@ void setup() {
   writeNeutral();
 
   BP32.setup(&onConnectedController, &onDisconnectedController);
+  if (digitalRead(PIN_BOOT_BUTTON) == LOW) {
+    BP32.forgetBluetoothKeys();
+    Serial.println("BOOT held: cleared stored Bluetooth pairing keys");
+  }
   BP32.enableVirtualDevice(false);
 }
 
