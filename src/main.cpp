@@ -4,7 +4,7 @@
 // GPIO pins for PWM outputs (adjust to match your wiring)
 constexpr uint8_t PIN_THROTTLE_PWM = 18;  // HSP SP-03018 ESC signal
 constexpr uint8_t PIN_STEERING_PWM = 19;  // Steering servo signal
-constexpr uint8_t PIN_BOOT_BUTTON = 0;    // Hold BOOT at startup to clear BT keys
+constexpr uint8_t PIN_BOOT_BUTTON = 0;    // Hold BOOT for 1.5s while running to clear BT keys
 
 // LEDC PWM configuration: standard 50 Hz RC servo/ESC frame (20,000 us)
 constexpr uint8_t LEDC_CH_THROTTLE = 0;
@@ -98,6 +98,24 @@ void processControllers() {
   }
 }
 
+void checkBootButtonClearKeys() {
+  static uint32_t pressedSinceMs = 0;
+  static bool clearedThisPress = false;
+
+  if (digitalRead(PIN_BOOT_BUTTON) == LOW) {
+    if (pressedSinceMs == 0) {
+      pressedSinceMs = millis();
+    } else if (!clearedThisPress && (millis() - pressedSinceMs >= 1500)) {
+      BP32.forgetBluetoothKeys();
+      clearedThisPress = true;
+      Serial.println("Cleared stored Bluetooth pairing keys!");
+    }
+  } else {
+    pressedSinceMs = 0;
+    clearedThisPress = false;
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.println("esp32-rc-car (Bluepad32 + HSP SP-03018) starting...");
@@ -115,14 +133,11 @@ void setup() {
   writeNeutral();
 
   BP32.setup(&onConnectedController, &onDisconnectedController);
-  if (digitalRead(PIN_BOOT_BUTTON) == LOW) {
-    BP32.forgetBluetoothKeys();
-    Serial.println("BOOT held: cleared stored Bluetooth pairing keys");
-  }
   BP32.enableVirtualDevice(false);
 }
 
 void loop() {
+  checkBootButtonClearKeys();
   if (BP32.update()) {
     processControllers();
   }
